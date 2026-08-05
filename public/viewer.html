@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title id="pageTitle">加载中...</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: #1a1a2e;
+    color: #fff;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* 顶部栏 */
+  .top-bar {
+    background: rgba(26, 26, 46, 0.95);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+  }
+  .top-bar .doc-title {
+    font-size: 15px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 60%;
+  }
+  .top-bar .page-indicator {
+    font-size: 14px;
+    color: rgba(255,255,255,0.6);
+    white-space: nowrap;
+    margin-left: 12px;
+  }
+
+  /* 页面容器 */
+  .viewer {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .page-container {
+    position: relative;
+    max-width: 100%;
+    max-height: calc(100vh - 140px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .page-container img {
+    max-width: 100%;
+    max-height: calc(100vh - 140px);
+    object-fit: contain;
+    border-radius: 4px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+    display: block;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* 翻页按钮 */
+  .nav-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255,255,255,0.1);
+    color: #fff;
+    font-size: 24px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    z-index: 10;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .nav-btn:hover {
+    background: rgba(255,255,255,0.2);
+  }
+  .nav-btn:active {
+    transform: translateY(-50%) scale(0.92);
+  }
+  .nav-btn.prev {
+    left: 12px;
+  }
+  .nav-btn.next {
+    right: 12px;
+  }
+  .nav-btn:disabled {
+    opacity: 0.2;
+    cursor: default;
+  }
+  .nav-btn:disabled:hover {
+    background: rgba(255,255,255,0.1);
+  }
+  .nav-btn:disabled:active {
+    transform: translateY(-50%) scale(1);
+  }
+
+  /* 底部栏 */
+  .bottom-bar {
+    background: rgba(26, 26, 46, 0.95);
+    padding: 12px 20px;
+    text-align: center;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+  }
+  .bottom-bar .info {
+    font-size: 12px;
+    color: rgba(255,255,255,0.4);
+  }
+
+  /* 加载 / 错误状态 */
+  .loading, .error {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+    padding: 40px;
+    text-align: center;
+  }
+  .loading .spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid rgba(255,255,255,0.1);
+    border-top: 4px solid #4a6cf7;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading .text { color: rgba(255,255,255,0.6); font-size: 15px; }
+  .error .emoji { font-size: 48px; }
+  .error .text { color: rgba(255,255,255,0.6); font-size: 16px; }
+  .error .btn-retry {
+    margin-top: 12px; padding: 10px 24px; border: 2px solid rgba(255,255,255,0.2);
+    border-radius: 8px; background: transparent; color: #fff; font-size: 14px;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .error .btn-retry:hover { border-color: #4a6cf7; color: #4a6cf7; }
+
+  /* 响应式 */
+  @media (max-width: 640px) {
+    .top-bar { padding: 10px 14px; }
+    .top-bar .doc-title { font-size: 13px; max-width: 50%; }
+    .top-bar .page-indicator { font-size: 12px; }
+    .viewer { padding: 10px; }
+    .nav-btn { width: 40px; height: 40px; font-size: 18px; }
+    .nav-btn.prev { left: 6px; }
+    .nav-btn.next { right: 6px; }
+    .page-container img { max-height: calc(100vh - 120px); }
+  }
+</style>
+</head>
+<body>
+
+<!-- 顶部栏 -->
+<div class="top-bar" id="topBar" style="display:none">
+  <span class="doc-title" id="docTitle">加载中...</span>
+  <span class="page-indicator" id="pageIndicator">0 / 0</span>
+</div>
+
+<!-- 查看区域 -->
+<div class="viewer" id="viewer">
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <div class="text">正在加载文档...</div>
+  </div>
+  <div class="error" id="error" style="display:none">
+    <div class="emoji">😕</div>
+    <div class="text" id="errorText">无法加载文档</div>
+    <button class="btn-retry" onclick="location.reload()">重新加载</button>
+  </div>
+  <div class="page-container" id="pageContainer" style="display:none">
+    <button class="nav-btn prev" id="prevBtn" disabled>‹</button>
+    <img id="pageImage" src="" alt="页面内容">
+    <button class="nav-btn next" id="nextBtn" disabled>›</button>
+  </div>
+</div>
+
+<!-- 底部栏 -->
+<div class="bottom-bar" id="bottomBar" style="display:none">
+  <span class="info" id="bottomInfo"></span>
+</div>
+
+<script>
+// ---------- 从 URL 获取 id ----------
+const params = new URLSearchParams(window.location.search);
+const id = params.get('id');
+if (!id) {
+  document.getElementById('loading').style.display = 'none';
+  const err = document.getElementById('error');
+  err.style.display = 'flex';
+  document.getElementById('errorText').textContent = '缺少文档 ID，请检查链接是否正确';
+  throw new Error('no id');
+}
+
+// ---------- 状态 ----------
+let images = [];
+let currentPage = 0;
+let totalPages = 0;
+let docTitle = '';
+
+// DOM
+const topBar = document.getElementById('topBar');
+const bottomBar = document.getElementById('bottomBar');
+const loading = document.getElementById('loading');
+const error = document.getElementById('error');
+const errorText = document.getElementById('errorText');
+const pageContainer = document.getElementById('pageContainer');
+const pageImage = document.getElementById('pageImage');
+const prevBtn = document.getElementById('prevBtn');
+const nextBtn = document.getElementById('nextBtn');
+const docTitleEl = document.getElementById('docTitle');
+const pageIndicator = document.getElementById('pageIndicator');
+const bottomInfo = document.getElementById('bottomInfo');
+
+// ---------- 加载 ----------
+async function loadDoc() {
+  try {
+    const resp = await fetch(`/api/view/${id}`);
+    if (!resp.ok) {
+      if (resp.status === 404) throw new Error('文档不存在或已过期');
+      throw new Error('加载失败 (' + resp.status + ')');
+    }
+    const data = await resp.json();
+    images = data.images;
+    totalPages = data.totalPages;
+    docTitle = data.title || '未命名文档';
+
+    // 更新页面标题
+    document.title = docTitle;
+
+    // 显示界面
+    loading.style.display = 'none';
+    topBar.style.display = 'flex';
+    bottomBar.style.display = 'block';
+    pageContainer.style.display = 'flex';
+
+    docTitleEl.textContent = docTitle;
+    bottomInfo.textContent = `共 ${totalPages} 页 · 由 PDF 转网页工具生成`;
+    updatePage();
+
+    // 键盘事件
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') goPrev();
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
+        e.preventDefault();
+        goNext();
+      }
+    });
+
+    // 触摸滑动支持
+    let touchStartX = 0;
+    document.addEventListener('touchstart', (e) => {
+      touchStartX = e.changedTouches[0].screenX;
+    }, { passive: true });
+    document.addEventListener('touchend', (e) => {
+      const diff = e.changedTouches[0].screenX - touchStartX;
+      if (Math.abs(diff) > 50) {
+        if (diff > 0) goPrev();
+        else goNext();
+      }
+    }, { passive: true });
+
+  } catch (err) {
+    loading.style.display = 'none';
+    error.style.display = 'flex';
+    errorText.textContent = err.message;
+  }
+}
+
+// ---------- 翻页 ----------
+function updatePage() {
+  if (totalPages === 0) return;
+  pageImage.src = images[currentPage];
+  pageImage.alt = `第 ${currentPage + 1} 页`;
+  pageIndicator.textContent = `${currentPage + 1} / ${totalPages}`;
+  prevBtn.disabled = currentPage <= 0;
+  nextBtn.disabled = currentPage >= totalPages - 1;
+  // 更新 URL hash 但不刷新页面
+  history.replaceState(null, '', `?id=${id}#page=${currentPage + 1}`);
+}
+
+function goPrev() {
+  if (currentPage > 0) {
+    currentPage--;
+    updatePage();
+  }
+}
+
+function goNext() {
+  if (currentPage < totalPages - 1) {
+    currentPage++;
+    updatePage();
+  }
+}
+
+prevBtn.addEventListener('click', goPrev);
+nextBtn.addEventListener('click', goNext);
+
+// 从 URL hash 恢复页数
+const hashMatch = window.location.hash.match(/page=(\d+)/);
+const startPage = hashMatch ? parseInt(hashMatch[1]) - 1 : 0;
+currentPage = Math.max(0, startPage);
+
+// ---------- 启动 ----------
+loadDoc();
+</script>
+
+</body>
+</html>

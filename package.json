@@ -1,0 +1,15 @@
+{
+  "name": "pdf-to-web",
+  "version": "1.0.0",
+  "description": "PDF转网页工具 - 上传PDF生成可分享的翻页网页",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "multer": "^1.4.5-lts.1",
+    "uuid": "^9.0.0"
+  }
+}
