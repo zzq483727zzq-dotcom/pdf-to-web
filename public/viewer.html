@@ -30,21 +30,55 @@
   }
 
   .page-wrap {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  .page-under {
+    position: absolute;
     display: flex;
     align-items: center;
     justify-content: center;
     width: 100%;
     height: 100%;
+    z-index: 1;
   }
-
-  .page-wrap img {
-    display: block;
+  .page-under img {
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
     border-radius: 2px;
     box-shadow: 0 4px 40px rgba(0,0,0,0.6);
-    transition: opacity 0.15s ease;
+  }
+
+  .page-over {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    z-index: 2;
+    will-change: transform;
+    background: #0f0f1a;
+  }
+  .page-over img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 2px;
+    box-shadow: 0 4px 40px rgba(0,0,0,0.6);
+  }
+
+  .page-over.smooth {
+    transition: transform 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   }
 
   /* 翻页按钮 */
@@ -68,16 +102,13 @@
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
   }
-  .nav-btn:hover {
-    background: rgba(255,255,255,0.14);
-    color: rgba(255,255,255,0.7);
-  }
+  .nav-btn:hover { background: rgba(255,255,255,0.14); color: rgba(255,255,255,0.7); }
   .nav-btn:active { transform: translateY(-50%) scale(0.92); }
   .nav-btn.prev { left: 14px; }
   .nav-btn.next { right: 14px; }
   .nav-btn.hidden { opacity: 0; pointer-events: none; }
 
-  /* 点击区域（左右半屏） */
+  /* 点击区域 */
   .click-zone {
     position: absolute;
     top: 0;
@@ -100,7 +131,6 @@
     border-radius: 20px;
     background: rgba(0,0,0,0.6);
     backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
     font-size: 14px;
     color: rgba(255,255,255,0.7);
     z-index: 30;
@@ -111,21 +141,31 @@
   }
   .page-info.show { opacity: 1; }
 
-  /* 预加载进度 */
-  .preload-bar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    height: 3px;
-    background: linear-gradient(90deg, #4a6cf7, #7c3aed);
-    z-index: 100;
-    width: 0%;
-    transition: width 0.3s ease;
+  /* 加载指示器 */
+  .page-loader {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 5;
+    background: #0f0f1a;
     opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
   }
-  .preload-bar.active { opacity: 1; }
+  .page-loader.active { opacity: 1; }
+  .page-loader .spinner {
+    width: 28px;
+    height: 28px;
+    border: 2px solid rgba(255,255,255,0.06);
+    border-top: 2px solid #4a6cf7;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* 加载状态 */
+  /* 加载/错误 */
   .loading, .error {
     position: fixed;
     inset: 0;
@@ -149,7 +189,6 @@
   .loading .text, .error .text { color: rgba(255,255,255,0.5); font-size: 15px; }
   .error .emoji { font-size: 48px; }
   .error .btn { margin-top: 8px; padding: 10px 28px; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; background: transparent; color: #fff; font-size: 14px; cursor: pointer; }
-  .error .btn:hover { border-color: #4a6cf7; color: #4a6cf7; }
 
   @media (max-width: 640px) {
     .nav-btn { width: 40px; height: 40px; font-size: 20px; }
@@ -173,18 +212,25 @@
   <button class="btn" onclick="location.reload()">重新加载</button>
 </div>
 
-<div class="preload-bar" id="preloadBar"></div>
-
 <div class="viewer" id="viewer" style="display:none">
-  <div class="page-wrap">
-    <img id="pageImage" src="" alt="">
+  <div class="page-wrap" id="pageWrap">
+    <!-- 底层：下一页/上一页 -->
+    <div class="page-under" id="pageUnder">
+      <img id="underImg" src="" alt="">
+    </div>
+    <!-- 加载指示器 -->
+    <div class="page-loader" id="pageLoader">
+      <div class="spinner"></div>
+    </div>
+    <!-- 顶层：当前页（可拖动） -->
+    <div class="page-over" id="pageOver">
+      <img id="pageImg" src="" alt="">
+    </div>
   </div>
 
-  <!-- 点击区域 -->
   <div class="click-zone left" id="zoneLeft"></div>
   <div class="click-zone right" id="zoneRight"></div>
 
-  <!-- 翻页按钮 -->
   <button class="nav-btn prev" id="prevBtn">‹</button>
   <button class="nav-btn next" id="nextBtn">›</button>
 
@@ -193,54 +239,50 @@
 
 <script>
 const id = new URLSearchParams(window.location.search).get('id');
-if (!id) {
-  document.getElementById('loading').style.display = 'none';
-  document.getElementById('error').style.display = 'flex';
-  document.getElementById('errorText').textContent = '缺少文档 ID';
-  throw new Error('no id');
-}
+if (!id) { finishError('缺少文档 ID'); throw new Error('no id'); }
 
 let images = [], totalPages = 0, currentPage = 0, docTitle = '';
-const preloadCache = new Map();
+const cache = new Map();
 
-const loading = document.getElementById('loading');
-const loadingText = document.getElementById('loadingText');
-const error = document.getElementById('error');
-const errorText = document.getElementById('errorText');
-const viewer = document.getElementById('viewer');
-const pageImage = document.getElementById('pageImage');
-const pageInfo = document.getElementById('pageInfo');
-const prevBtn = document.getElementById('prevBtn');
-const nextBtn = document.getElementById('nextBtn');
-const zoneLeft = document.getElementById('zoneLeft');
-const zoneRight = document.getElementById('zoneRight');
-const preloadBar = document.getElementById('preloadBar');
+const $ = s => document.getElementById(s);
+const loading = $('loading'), loadingText = $('loadingText');
+const error = $('error'), errorText = $('errorText');
+const viewer = $('viewer'), pageWrap = $('pageWrap');
+const pageImg = $('pageImg'), underImg = $('underImg');
+const pageOver = $('pageOver'), pageUnder = $('pageUnder');
+const pageLoader = $('pageLoader');
+const pageInfo = $('pageInfo'), prevBtn = $('prevBtn'), nextBtn = $('nextBtn');
+const zoneLeft = $('zoneLeft'), zoneRight = $('zoneRight');
 
-// 预加载单张
-function preloadOne(url) {
-  if (preloadCache.has(url)) return preloadCache.get(url);
+function finishError(msg) {
+  loading.style.display = 'none';
+  error.style.display = 'flex';
+  errorText.textContent = msg;
+}
+
+// ===== 预加载 =====
+function preload(url) {
+  if (cache.has(url)) return cache.get(url);
   const p = new Promise((res, rej) => {
     const img = new Image();
     img.onload = () => res(url);
     img.onerror = () => rej(url);
     img.src = url;
   });
-  preloadCache.set(url, p);
+  cache.set(url, p);
   return p;
 }
 
-// 全部预加载
-async function preloadAll(urls) {
-  preloadBar.classList.add('active');
-  preloadBar.style.width = '0%';
-  for (let i = 0; i < urls.length; i++) {
-    try { await preloadOne(urls[i]); } catch(e) {}
-    preloadBar.style.width = `${((i + 1) / urls.length) * 100}%`;
+// 只预加载当前页 + 前后各2页
+function preloadNearby(idx) {
+  for (const i of [idx, idx + 1, idx + 2, idx - 1, idx - 2]) {
+    if (i >= 0 && i < totalPages && images[i]) {
+      preload(images[i]).catch(() => {});
+    }
   }
-  setTimeout(() => preloadBar.classList.remove('active'), 500);
 }
 
-// 显示页码
+// ===== UI =====
 let pageInfoTimer = null;
 function showPageInfo() {
   pageInfo.textContent = `${currentPage + 1} / ${totalPages}`;
@@ -248,83 +290,188 @@ function showPageInfo() {
   clearTimeout(pageInfoTimer);
   pageInfoTimer = setTimeout(() => pageInfo.classList.remove('show'), 2000);
 }
-
-// 更新按钮
 function updateButtons() {
   prevBtn.classList.toggle('hidden', currentPage <= 0);
   nextBtn.classList.toggle('hidden', currentPage >= totalPages - 1);
 }
 
-// 翻页
-function goToPage(idx) {
+// ===== 翻页 =====
+function goToPage(idx, animate) {
   if (idx < 0 || idx >= totalPages || idx === currentPage) return;
+
+  // 如果有动画，让 pageOver 滑走
+  if (animate === 'left') {
+    // 下一页：从右滑入
+    pageOver.classList.remove('smooth');
+    underImg.src = images[idx];
+    pageOver.style.transform = 'translateX(0)';
+    void pageOver.offsetHeight;
+    pageOver.classList.add('smooth');
+    pageOver.style.transform = 'translateX(-100%)';
+    setTimeout(() => {
+      currentPage = idx;
+      pageOver.classList.remove('smooth');
+      pageOver.style.transform = 'translateX(0)';
+      pageImg.src = images[currentPage];
+      underImg.src = '';
+      updateButtons(); showPageInfo(); preloadNearby(currentPage);
+    }, 350);
+    return;
+  }
+  if (animate === 'right') {
+    // 上一页：从左滑入
+    pageOver.classList.remove('smooth');
+    underImg.src = images[idx];
+    pageOver.style.transform = 'translateX(0)';
+    void pageOver.offsetHeight;
+    pageOver.classList.add('smooth');
+    pageOver.style.transform = 'translateX(100%)';
+    setTimeout(() => {
+      currentPage = idx;
+      pageOver.classList.remove('smooth');
+      pageOver.style.transform = 'translateX(0)';
+      pageImg.src = images[currentPage];
+      underImg.src = '';
+      updateButtons(); showPageInfo(); preloadNearby(currentPage);
+    }, 350);
+    return;
+  }
+
+  // 无动画直接切换
   currentPage = idx;
-  pageImage.src = images[currentPage];
-  updateButtons();
-  showPageInfo();
+  pageImg.src = images[currentPage];
+  underImg.src = '';
+  pageOver.style.transform = 'translateX(0)';
+  updateButtons(); showPageInfo(); preloadNearby(currentPage);
 }
 
-function goPrev() { goToPage(currentPage - 1); }
-function goNext() { goToPage(currentPage + 1); }
+function goPrev() { goToPage(currentPage - 1, 'right'); }
+function goNext() { goToPage(currentPage + 1, 'left'); }
 
-// 事件
+// ===== 拖拽（触屏 + 鼠标） =====
+let drag = null;
+let raf = null;
+
+function startDrag(x) {
+  if (drag) return;
+  drag = { startX: x, curX: x, moved: false, dir: 0, active: false };
+}
+
+function moveDrag(x) {
+  if (!drag) return;
+  drag.curX = x;
+  const dx = drag.curX - drag.startX;
+
+  if (!drag.active) {
+    if (Math.abs(dx) < 12) return;
+    drag.active = true;
+    drag.dir = dx < 0 ? 1 : -1;
+    const targetIdx = currentPage + drag.dir;
+    if (targetIdx < 0 || targetIdx >= totalPages) { drag = null; return; }
+    // 预加载并设置底层
+    preload(images[targetIdx]).then(() => {
+      if (drag) underImg.src = images[targetIdx];
+    }).catch(() => {});
+    // 立即显示底层（可能空白，但等加载完自动显示）
+    underImg.src = images[targetIdx];
+    // 重置顶层位置
+    pageOver.classList.remove('smooth');
+    pageOver.style.transform = 'translateX(0)';
+    void pageOver.offsetHeight;
+  }
+
+  if (raf) cancelAnimationFrame(raf);
+  raf = requestAnimationFrame(() => {
+    raf = null;
+    pageOver.style.transform = `translateX(${dx}px)`;
+  });
+}
+
+function endDrag() {
+  if (raf) { cancelAnimationFrame(raf); raf = null; }
+  if (!drag) return;
+  const dx = drag.curX - drag.startX;
+  const w = window.innerWidth;
+
+  if (drag.active && Math.abs(dx) > w * 0.18) {
+    // 超过阈值，滑走
+    const dir = dx < 0 ? 1 : -1;
+    const targetIdx = currentPage + dir;
+    if (targetIdx >= 0 && targetIdx < totalPages) {
+      pageOver.classList.add('smooth');
+      pageOver.style.transform = `translateX(${dir === 1 ? '-100%' : '100%'})`;
+      setTimeout(() => {
+        currentPage = targetIdx;
+        pageOver.classList.remove('smooth');
+        pageOver.style.transform = 'translateX(0)';
+        pageImg.src = images[currentPage];
+        underImg.src = '';
+        updateButtons(); showPageInfo(); preloadNearby(currentPage);
+      }, 350);
+      drag = null;
+      return;
+    }
+  }
+  // 弹回
+  pageOver.classList.add('smooth');
+  pageOver.style.transform = 'translateX(0)';
+  setTimeout(() => pageOver.classList.remove('smooth'), 350);
+  drag = null;
+}
+
+// 事件绑定
+viewer.addEventListener('mousedown', e => startDrag(e.clientX));
+window.addEventListener('mousemove', e => { if (drag) moveDrag(e.clientX); });
+window.addEventListener('mouseup', () => endDrag());
+
+viewer.addEventListener('touchstart', e => {
+  if (e.touches.length !== 1) return;
+  startDrag(e.touches[0].clientX);
+}, { passive: true });
+viewer.addEventListener('touchmove', e => {
+  if (e.touches.length !== 1) return;
+  moveDrag(e.touches[0].clientX);
+}, { passive: true });
+viewer.addEventListener('touchend', () => endDrag(), { passive: true });
+
+// 按钮 + 点击区域
 prevBtn.addEventListener('click', goPrev);
 nextBtn.addEventListener('click', goNext);
 zoneLeft.addEventListener('click', goPrev);
 zoneRight.addEventListener('click', goNext);
 
+// 键盘
 document.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') goPrev();
   if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
-    e.preventDefault();
-    goNext();
+    e.preventDefault(); goNext();
   }
 });
 
-// 触摸滑动（简单翻页，不跟手）
-let touchStartX = 0;
-viewer.addEventListener('touchstart', (e) => {
-  touchStartX = e.changedTouches[0].screenX;
-}, { passive: true });
-viewer.addEventListener('touchend', (e) => {
-  const diff = e.changedTouches[0].screenX - touchStartX;
-  if (Math.abs(diff) > 50) {
-    if (diff > 0) goPrev();
-    else goNext();
-  }
-}, { passive: true });
-
-// 加载文档
+// ===== 加载 =====
 async function loadDoc() {
   try {
     loadingText.textContent = '加载文档信息...';
     const resp = await fetch(`/api/view/${id}`);
     if (!resp.ok) throw new Error(resp.status === 404 ? '文档不存在或已过期' : '加载失败');
     const data = await resp.json();
-    images = data.images;
-    totalPages = data.totalPages;
-    docTitle = data.title || '未命名文档';
+    images = data.images; totalPages = data.totalPages; docTitle = data.title || '未命名文档';
     document.title = docTitle;
 
     const hash = window.location.hash.match(/page=(\d+)/);
     currentPage = hash ? Math.max(0, Math.min(parseInt(hash[1]) - 1, totalPages - 1)) : 0;
 
     loadingText.textContent = '加载页面...';
-    await preloadOne(images[currentPage]);
+    await preload(images[currentPage]);
 
     loading.style.display = 'none';
     viewer.style.display = 'flex';
-    pageImage.src = images[currentPage];
-    updateButtons();
-    showPageInfo();
-
-    // 后台预加载所有
-    preloadAll(images);
+    pageImg.src = images[currentPage];
+    updateButtons(); showPageInfo();
+    preloadNearby(currentPage);
 
   } catch (err) {
-    loading.style.display = 'none';
-    error.style.display = 'flex';
-    errorText.textContent = err.message;
+    finishError(err.message);
   }
 }
 
