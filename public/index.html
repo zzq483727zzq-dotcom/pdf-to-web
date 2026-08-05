@@ -168,7 +168,7 @@
     </div>
     <div class="row">
       <label>图片质量</label>
-      <input type="range" id="quality" min="0.3" max="1.0" step="0.05" value="0.85">
+      <input type="range" id="quality" min="0.3" max="1.0" step="0.05" value="0.7">
       <span class="quality-label" id="qualityLabel">高</span>
       <button class="btn btn-primary" id="convertBtn" disabled>🚀 开始转换</button>
     </div>
@@ -299,7 +299,7 @@ convertBtn.addEventListener('click', async () => {
       progressFill.style.width = `${(i / totalPages) * 50}%`;
 
       const page = await pdf.getPage(i);
-      const viewport = page.getViewport({ scale: 1.5 });
+      const viewport = page.getViewport({ scale: 1.0 });
       canvas.width = viewport.width;
       canvas.height = viewport.height;
 
