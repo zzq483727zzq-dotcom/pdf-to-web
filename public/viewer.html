@@ -39,6 +39,7 @@
     overflow: hidden;
   }
 
+  /* 底层（下一页/上一页） */
   .page-under {
     position: absolute;
     display: flex;
@@ -47,6 +48,7 @@
     width: 100%;
     height: 100%;
     z-index: 1;
+    background: #0f0f1a;
   }
   .page-under img {
     max-width: 100%;
@@ -55,7 +57,15 @@
     border-radius: 2px;
     box-shadow: 0 4px 40px rgba(0,0,0,0.6);
   }
+  .page-under .loading-tip {
+    color: rgba(255,255,255,0.3);
+    font-size: 14px;
+    display: none;
+  }
+  .page-under.loading img { display: none; }
+  .page-under.loading .loading-tip { display: block; }
 
+  /* 顶层（当前页，可拖动） */
   .page-over {
     position: absolute;
     display: flex;
@@ -76,9 +86,8 @@
     border-radius: 2px;
     box-shadow: 0 4px 40px rgba(0,0,0,0.6);
   }
-
   .page-over.smooth {
-    transition: transform 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
   }
 
   /* 翻页按钮 */
@@ -108,7 +117,6 @@
   .nav-btn.next { right: 14px; }
   .nav-btn.hidden { opacity: 0; pointer-events: none; }
 
-  /* 点击区域 */
   .click-zone {
     position: absolute;
     top: 0;
@@ -121,7 +129,6 @@
   .click-zone.left  { left: 0; }
   .click-zone.right { right: 0; }
 
-  /* 页码 */
   .page-info {
     position: fixed;
     bottom: 28px;
@@ -141,31 +148,6 @@
   }
   .page-info.show { opacity: 1; }
 
-  /* 加载指示器 */
-  .page-loader {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 5;
-    background: #0f0f1a;
-    opacity: 0;
-    transition: opacity 0.3s;
-    pointer-events: none;
-  }
-  .page-loader.active { opacity: 1; }
-  .page-loader .spinner {
-    width: 28px;
-    height: 28px;
-    border: 2px solid rgba(255,255,255,0.06);
-    border-top: 2px solid #4a6cf7;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  /* 加载/错误 */
   .loading, .error {
     position: fixed;
     inset: 0;
@@ -214,17 +196,12 @@
 
 <div class="viewer" id="viewer" style="display:none">
   <div class="page-wrap" id="pageWrap">
-    <!-- 底层：下一页/上一页 -->
     <div class="page-under" id="pageUnder">
       <img id="underImg" src="" alt="">
+      <span class="loading-tip">加载中...</span>
     </div>
-    <!-- 加载指示器 -->
-    <div class="page-loader" id="pageLoader">
-      <div class="spinner"></div>
-    </div>
-    <!-- 顶层：当前页（可拖动） -->
     <div class="page-over" id="pageOver">
-      <img id="pageImg" src="" alt="">
+      <img id="pageImg" src="" alt="" fetchpriority="high">
     </div>
   </div>
 
@@ -243,14 +220,12 @@ if (!id) { finishError('缺少文档 ID'); throw new Error('no id'); }
 
 let images = [], totalPages = 0, currentPage = 0, docTitle = '';
 const cache = new Map();
-
 const $ = s => document.getElementById(s);
 const loading = $('loading'), loadingText = $('loadingText');
 const error = $('error'), errorText = $('errorText');
 const viewer = $('viewer'), pageWrap = $('pageWrap');
 const pageImg = $('pageImg'), underImg = $('underImg');
 const pageOver = $('pageOver'), pageUnder = $('pageUnder');
-const pageLoader = $('pageLoader');
 const pageInfo = $('pageInfo'), prevBtn = $('prevBtn'), nextBtn = $('nextBtn');
 const zoneLeft = $('zoneLeft'), zoneRight = $('zoneRight');
 
@@ -260,22 +235,32 @@ function finishError(msg) {
   errorText.textContent = msg;
 }
 
-// ===== 预加载 =====
+// ===== 预加载（确保图片加载完成） =====
 function preload(url) {
-  if (cache.has(url)) return cache.get(url);
-  const p = new Promise((res, rej) => {
+  if (cache.has(url)) {
+    const entry = cache.get(url);
+    // 如果已经加载完成，直接返回成功
+    if (entry.loaded) return Promise.resolve(url);
+    return entry.promise;
+  }
+  const entry = { loaded: false, promise: null };
+  entry.promise = new Promise((res, rej) => {
     const img = new Image();
-    img.onload = () => res(url);
+    img.onload = () => { entry.loaded = true; res(url); };
     img.onerror = () => rej(url);
     img.src = url;
   });
-  cache.set(url, p);
-  return p;
+  cache.set(url, entry);
+  return entry.promise;
 }
 
-// 只预加载当前页 + 前后各2页
+function isCached(url) {
+  return cache.has(url) && cache.get(url).loaded;
+}
+
+// 预加载周围页
 function preloadNearby(idx) {
-  for (const i of [idx, idx + 1, idx + 2, idx - 1, idx - 2]) {
+  for (const i of [idx + 1, idx + 2, idx - 1, idx - 2]) {
     if (i >= 0 && i < totalPages && images[i]) {
       preload(images[i]).catch(() => {});
     }
@@ -295,15 +280,22 @@ function updateButtons() {
   nextBtn.classList.toggle('hidden', currentPage >= totalPages - 1);
 }
 
-// ===== 翻页 =====
-function goToPage(idx, animate) {
+// ===== 翻页（确保图片已加载） =====
+async function goToPage(idx, animate) {
   if (idx < 0 || idx >= totalPages || idx === currentPage) return;
 
-  // 如果有动画，让 pageOver 滑走
+  // 先确保目标页已加载
+  const url = images[idx];
+  if (!isCached(url)) {
+    // 显示加载中（仅在点击按钮时）
+    pageUnder.classList.add('loading');
+    try { await preload(url); } catch(e) { pageUnder.classList.remove('loading'); return; }
+    pageUnder.classList.remove('loading');
+  }
+
   if (animate === 'left') {
-    // 下一页：从右滑入
     pageOver.classList.remove('smooth');
-    underImg.src = images[idx];
+    underImg.src = url;
     pageOver.style.transform = 'translateX(0)';
     void pageOver.offsetHeight;
     pageOver.classList.add('smooth');
@@ -312,16 +304,15 @@ function goToPage(idx, animate) {
       currentPage = idx;
       pageOver.classList.remove('smooth');
       pageOver.style.transform = 'translateX(0)';
-      pageImg.src = images[currentPage];
+      pageImg.src = url;
       underImg.src = '';
       updateButtons(); showPageInfo(); preloadNearby(currentPage);
-    }, 350);
+    }, 300);
     return;
   }
   if (animate === 'right') {
-    // 上一页：从左滑入
     pageOver.classList.remove('smooth');
-    underImg.src = images[idx];
+    underImg.src = url;
     pageOver.style.transform = 'translateX(0)';
     void pageOver.offsetHeight;
     pageOver.classList.add('smooth');
@@ -330,16 +321,16 @@ function goToPage(idx, animate) {
       currentPage = idx;
       pageOver.classList.remove('smooth');
       pageOver.style.transform = 'translateX(0)';
-      pageImg.src = images[currentPage];
+      pageImg.src = url;
       underImg.src = '';
       updateButtons(); showPageInfo(); preloadNearby(currentPage);
-    }, 350);
+    }, 300);
     return;
   }
 
-  // 无动画直接切换
+  // 无动画
   currentPage = idx;
-  pageImg.src = images[currentPage];
+  pageImg.src = url;
   underImg.src = '';
   pageOver.style.transform = 'translateX(0)';
   updateButtons(); showPageInfo(); preloadNearby(currentPage);
@@ -348,13 +339,13 @@ function goToPage(idx, animate) {
 function goPrev() { goToPage(currentPage - 1, 'right'); }
 function goNext() { goToPage(currentPage + 1, 'left'); }
 
-// ===== 拖拽（触屏 + 鼠标） =====
+// ===== 拖拽翻页 =====
 let drag = null;
 let raf = null;
 
 function startDrag(x) {
   if (drag) return;
-  drag = { startX: x, curX: x, moved: false, dir: 0, active: false };
+  drag = { startX: x, curX: x, active: false, dir: 0, targetIdx: -1, url: '' };
 }
 
 function moveDrag(x) {
@@ -366,15 +357,18 @@ function moveDrag(x) {
     if (Math.abs(dx) < 12) return;
     drag.active = true;
     drag.dir = dx < 0 ? 1 : -1;
-    const targetIdx = currentPage + drag.dir;
-    if (targetIdx < 0 || targetIdx >= totalPages) { drag = null; return; }
-    // 预加载并设置底层
-    preload(images[targetIdx]).then(() => {
-      if (drag) underImg.src = images[targetIdx];
+    drag.targetIdx = currentPage + drag.dir;
+    if (drag.targetIdx < 0 || drag.targetIdx >= totalPages) { drag = null; return; }
+    drag.url = images[drag.targetIdx];
+
+    // 设置底层（先显示加载中，直到图片加载完成）
+    pageUnder.classList.add('loading');
+    underImg.src = drag.url;
+    // 预加载
+    preload(drag.url).then(() => {
+      pageUnder.classList.remove('loading');
     }).catch(() => {});
-    // 立即显示底层（可能空白，但等加载完自动显示）
-    underImg.src = images[targetIdx];
-    // 重置顶层位置
+
     pageOver.classList.remove('smooth');
     pageOver.style.transform = 'translateX(0)';
     void pageOver.offsetHeight;
@@ -394,20 +388,21 @@ function endDrag() {
   const w = window.innerWidth;
 
   if (drag.active && Math.abs(dx) > w * 0.18) {
-    // 超过阈值，滑走
     const dir = dx < 0 ? 1 : -1;
     const targetIdx = currentPage + dir;
     if (targetIdx >= 0 && targetIdx < totalPages) {
+      const url = images[targetIdx];
       pageOver.classList.add('smooth');
       pageOver.style.transform = `translateX(${dir === 1 ? '-100%' : '100%'})`;
       setTimeout(() => {
         currentPage = targetIdx;
         pageOver.classList.remove('smooth');
         pageOver.style.transform = 'translateX(0)';
-        pageImg.src = images[currentPage];
+        pageImg.src = url;
+        pageUnder.classList.remove('loading');
         underImg.src = '';
         updateButtons(); showPageInfo(); preloadNearby(currentPage);
-      }, 350);
+      }, 300);
       drag = null;
       return;
     }
@@ -415,11 +410,11 @@ function endDrag() {
   // 弹回
   pageOver.classList.add('smooth');
   pageOver.style.transform = 'translateX(0)';
-  setTimeout(() => pageOver.classList.remove('smooth'), 350);
+  setTimeout(() => pageOver.classList.remove('smooth'), 300);
   drag = null;
 }
 
-// 事件绑定
+// 事件
 viewer.addEventListener('mousedown', e => startDrag(e.clientX));
 window.addEventListener('mousemove', e => { if (drag) moveDrag(e.clientX); });
 window.addEventListener('mouseup', () => endDrag());
@@ -434,13 +429,11 @@ viewer.addEventListener('touchmove', e => {
 }, { passive: true });
 viewer.addEventListener('touchend', () => endDrag(), { passive: true });
 
-// 按钮 + 点击区域
 prevBtn.addEventListener('click', goPrev);
 nextBtn.addEventListener('click', goNext);
 zoneLeft.addEventListener('click', goPrev);
 zoneRight.addEventListener('click', goNext);
 
-// 键盘
 document.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') goPrev();
   if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
@@ -457,16 +450,18 @@ async function loadDoc() {
     const data = await resp.json();
     images = data.images; totalPages = data.totalPages; docTitle = data.title || '未命名文档';
     document.title = docTitle;
-
     const hash = window.location.hash.match(/page=(\d+)/);
     currentPage = hash ? Math.max(0, Math.min(parseInt(hash[1]) - 1, totalPages - 1)) : 0;
 
     loadingText.textContent = '加载页面...';
-    await preload(images[currentPage]);
+    // 预加载当前页，确保首屏加载完成
+    const firstUrl = images[currentPage];
+    // 直接预加载，同时用 img 标签加载
+    pageImg.src = firstUrl;
+    await preload(firstUrl);
 
     loading.style.display = 'none';
     viewer.style.display = 'flex';
-    pageImg.src = images[currentPage];
     updateButtons(); showPageInfo();
     preloadNearby(currentPage);
 
