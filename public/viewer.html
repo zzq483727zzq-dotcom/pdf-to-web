@@ -2,11 +2,10 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title id="pageTitle">加载中...</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
   body {
     background: #0f0f1a;
     color: #fff;
@@ -16,9 +15,10 @@
     user-select: none;
     -webkit-user-select: none;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    touch-action: none;
+    -webkit-touch-callout: none;
   }
 
-  /* ===== 全屏查看器 ===== */
   .viewer {
     width: 100vw;
     height: 100vh;
@@ -27,9 +27,9 @@
     justify-content: center;
     position: relative;
     background: #0f0f1a;
+    overflow: hidden;
   }
 
-  /* ===== 翻页容器 ===== */
   .book {
     perspective: 2500px;
     width: 100%;
@@ -47,6 +47,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    /* 防止拖拽时选中 */
+    pointer-events: none;
   }
 
   /* 底层页（新页面，被翻出来） */
@@ -57,13 +59,8 @@
     object-fit: contain;
     border-radius: 2px;
     box-shadow: 0 4px 40px rgba(0,0,0,0.6);
-    opacity: 0;
-    transition: opacity 0.3s ease;
     position: relative;
     z-index: 1;
-  }
-  .page-under.show {
-    opacity: 1;
   }
 
   /* 翻页层（正在翻的那一页） */
@@ -75,11 +72,12 @@
     height: 100%;
     transform-origin: left center;
     transform: rotateY(0deg);
-    transition: none;
     z-index: 10;
     pointer-events: none;
     backface-visibility: hidden;
     -webkit-backface-visibility: hidden;
+    /* 默认无动画，通过 JS 控制 */
+    transition: none;
   }
   .page-flip img {
     display: block;
@@ -89,45 +87,49 @@
     border-radius: 2px;
     box-shadow: 0 4px 40px rgba(0,0,0,0.6);
   }
-  .page-flip.animate {
-    transition: transform 0.55s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+
+  /* 翻页阴影 */
+  .page-flip::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to left, rgba(0,0,0,0.15), transparent 60%);
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+    border-radius: 2px;
+  }
+  .page-flip.shadow::after {
+    opacity: 1;
   }
 
-  /* ===== 点击导航区 ===== */
-  .nav-zone {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 35%;
-    z-index: 20;
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-  }
-  .nav-zone.left  { left: 0; }
-  .nav-zone.right { right: 0; }
-  .nav-zone .arrow {
-    position: absolute;
+  /* 鼠标拖拽提示 */
+  .drag-hint {
+    position: fixed;
     top: 50%;
     transform: translateY(-50%);
-    width: 48px;
-    height: 48px;
+    z-index: 25;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .drag-hint.left  { left: 12px; }
+  .drag-hint.right { right: 12px; }
+  .drag-hint.show { opacity: 1; }
+  .drag-hint span {
+    display: block;
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
-    background: rgba(255,255,255,0.06);
+    background: rgba(255,255,255,0.08);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 28px;
+    font-size: 22px;
     color: rgba(255,255,255,0.3);
-    opacity: 0;
-    transition: all 0.25s ease;
-    pointer-events: none;
   }
-  .nav-zone.left .arrow  { left: 16px; }
-  .nav-zone.right .arrow { right: 16px; }
-  .nav-zone:hover .arrow,
-  .nav-zone:active .arrow { opacity: 1; background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.7); }
 
-  /* ===== 底部页码 ===== */
+  /* 页码 */
   .page-info {
     position: fixed;
     bottom: 28px;
@@ -141,16 +143,14 @@
     font-size: 14px;
     color: rgba(255,255,255,0.7);
     z-index: 30;
+    pointer-events: none;
     opacity: 0;
     transition: opacity 0.4s ease;
-    pointer-events: none;
     white-space: nowrap;
   }
-  .page-info.show {
-    opacity: 1;
-  }
+  .page-info.show { opacity: 1; }
 
-  /* ===== 加载/错误 ===== */
+  /* 加载 */
   .loading, .error {
     position: fixed;
     inset: 0;
@@ -176,62 +176,43 @@
   .error .btn { margin-top: 8px; padding: 10px 28px; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; background: transparent; color: #fff; font-size: 14px; cursor: pointer; }
   .error .btn:hover { border-color: #4a6cf7; color: #4a6cf7; }
 
-  /* ===== 响应式 ===== */
   @media (max-width: 640px) {
-    .nav-zone { width: 40%; }
-    .nav-zone .arrow { width: 36px; height: 36px; font-size: 20px; }
-    .nav-zone.left .arrow  { left: 8px; }
-    .nav-zone.right .arrow { right: 8px; }
     .page-info { font-size: 12px; padding: 6px 16px; bottom: 20px; }
   }
+
+  /* 禁止点击时闪烁 */
+  .viewer.dragging { cursor: grabbing; }
+  .viewer:not(.dragging) { cursor: default; }
 </style>
 </head>
 <body>
 
-<!-- 加载 -->
 <div class="loading" id="loading">
   <div class="spinner"></div>
   <div class="text" id="loadingText">正在加载文档...</div>
 </div>
 
-<!-- 错误 -->
 <div class="error" id="error" style="display:none">
   <div class="emoji">📄</div>
   <div class="text" id="errorText">无法加载文档</div>
   <button class="btn" onclick="location.reload()">重新加载</button>
 </div>
 
-<!-- 全屏查看器 -->
 <div class="viewer" id="viewer" style="display:none">
-
   <div class="book" id="book">
     <div class="page-wrap" id="pageWrap">
-      <!-- 底层页（新页面） -->
       <img class="page-under" id="pageUnder" src="" alt="">
-      <!-- 翻页层 -->
       <div class="page-flip" id="pageFlip">
         <img id="flipImg" src="" alt="">
       </div>
     </div>
   </div>
-
-  <!-- 左导航（上一页） -->
-  <div class="nav-zone left" id="navLeft">
-    <div class="arrow">‹</div>
-  </div>
-  <!-- 右导航（下一页） -->
-  <div class="nav-zone right" id="navRight">
-    <div class="arrow">›</div>
-  </div>
-
-  <!-- 页码 -->
   <div class="page-info" id="pageInfo">0 / 0</div>
 </div>
 
 <script>
-// ===== 获取文档 ID =====
-const params = new URLSearchParams(window.location.search);
-const id = params.get('id');
+// ===== ID =====
+const id = new URLSearchParams(window.location.search).get('id');
 if (!id) {
   document.getElementById('loading').style.display = 'none';
   document.getElementById('error').style.display = 'flex';
@@ -240,13 +221,8 @@ if (!id) {
 }
 
 // ===== 状态 =====
-let images = [];
-let totalPages = 0;
-let currentPage = 0;
-let docTitle = '';
+let images = [], totalPages = 0, currentPage = 0, docTitle = '';
 let isFlipping = false;
-
-// 预加载缓存
 const preloadCache = new Map();
 
 // ===== DOM =====
@@ -260,85 +236,226 @@ const pageFlip = document.getElementById('pageFlip');
 const flipImg = document.getElementById('flipImg');
 const pageWrap = document.getElementById('pageWrap');
 const pageInfo = document.getElementById('pageInfo');
-const navLeft = document.getElementById('navLeft');
-const navRight = document.getElementById('navRight');
 
-// ===== 预加载图片 =====
+// ===== 预加载 =====
 function preloadImage(url) {
   if (preloadCache.has(url)) return preloadCache.get(url);
-  const p = new Promise((resolve, reject) => {
+  const p = new Promise((res, rej) => {
     const img = new Image();
-    img.onload = () => resolve(url);
-    img.onerror = () => reject(url);
+    img.onload = () => { res(url); };
+    img.onerror = () => rej(url);
     img.src = url;
   });
   preloadCache.set(url, p);
   return p;
 }
 
-function preloadAdjacent(currentIdx) {
-  const next = [currentIdx - 1, currentIdx, currentIdx + 1, currentIdx + 2];
-  for (const i of next) {
+function preloadAdjacent(idx) {
+  for (const i of [idx - 1, idx, idx + 1, idx + 2]) {
     if (i >= 0 && i < totalPages && images[i]) {
       preloadImage(images[i]).catch(() => {});
     }
   }
 }
 
-// ===== 显示页码（短暂显示后淡出） =====
+// ===== 页码 =====
 let pageInfoTimer = null;
 function showPageInfo() {
   pageInfo.textContent = `${currentPage + 1} / ${totalPages}`;
   pageInfo.classList.add('show');
   clearTimeout(pageInfoTimer);
-  pageInfoTimer = setTimeout(() => pageInfo.classList.remove('show'), 1800);
+  pageInfoTimer = setTimeout(() => pageInfo.classList.remove('show'), 2000);
 }
 
-// ===== 翻页（方向：1=下一页，-1=上一页） =====
+// ===== 翻页（动画完成才更新状态） =====
+function animateFlip(angle, dur) {
+  return new Promise(resolve => {
+    pageFlip.style.transition = `transform ${dur}ms cubic-bezier(0.25, 0.46, 0.45, 0.94)`;
+    pageFlip.style.transform = `rotateY(${angle}deg)`;
+    const done = () => { pageFlip.ontransitionend = null; pageFlip.ontransitioncancel = null; resolve(); };
+    pageFlip.ontransitionend = done;
+    pageFlip.ontransitioncancel = done;
+    setTimeout(done, dur + 50);
+  });
+}
+
 async function turnPage(direction) {
   const nextIdx = currentPage + direction;
   if (isFlipping || nextIdx < 0 || nextIdx >= totalPages) return;
   isFlipping = true;
 
-  const currentUrl = images[currentPage];
-  const nextUrl = images[nextIdx];
+  // 设置底层 → 目标页
+  await preloadImage(images[nextIdx]).catch(() => {});
+  pageUnder.src = images[nextIdx];
 
-  // 1. 预加载目标页
-  loadingText.textContent = '加载中...';
-  await preloadImage(nextUrl).catch(() => {});
-  loadingText.textContent = '正在加载文档...';
+  // 翻页层 = 当前页
+  flipImg.src = images[currentPage];
 
-  // 2. 设置翻页图片（当前页的图片翻走）
-  pageUnder.src = nextUrl;
-  pageUnder.classList.remove('show');
-  flipImg.src = currentUrl;
-
-  // 3. 重置翻页层位置
-  pageFlip.style.transition = 'none';
-  pageFlip.style.transform = direction === 1 ? 'rotateY(0deg)' : 'rotateY(-180deg)';
-  void pageWrap.offsetHeight; // force reflow
-
-  // 4. 开翻
-  pageFlip.style.transition = 'transform 0.55s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
-  pageFlip.style.transform = direction === 1 ? 'rotateY(-180deg)' : 'rotateY(0deg)';
-
-  // 5. 等翻页完成
-  await new Promise(r => { pageFlip.ontransitionend = r; setTimeout(r, 600); });
-
-  // 6. 更新状态
-  currentPage = nextIdx;
-  pageUnder.classList.add('show');
+  // 复位翻页层
   pageFlip.style.transition = 'none';
   pageFlip.style.transform = 'rotateY(0deg)';
+  void pageWrap.offsetHeight;
 
-  // 7. 预加载相邻页
+  // 翻过去
+  const targetAngle = direction === 1 ? -180 : 180;
+  await animateFlip(targetAngle, 500);
+
+  // 完成
+  currentPage = nextIdx;
+  pageFlip.style.transition = 'none';
+  pageFlip.style.transform = 'rotateY(0deg)';
+  pageUnder.src = images[currentPage];
   preloadAdjacent(currentPage);
-
   isFlipping = false;
   showPageInfo();
 }
 
-// ===== 加载文档 =====
+// ===== 拖拽翻页（鼠标 + 触屏统一） =====
+let dragState = null;
+
+function getPointerX(e) {
+  return e.clientX ?? e.changedTouches?.[0]?.clientX ?? 0;
+}
+
+function onPointerDown(e) {
+  if (isFlipping) return;
+  const x = getPointerX(e);
+  const rect = viewer.getBoundingClientRect();
+  dragState = {
+    startX: x,
+    currentX: x,
+    direction: x < rect.width / 2 ? -1 : 1, // 左半屏=上一页，右半屏=下一页
+    isDragging: false,
+    moved: false,
+    targetIdx: -1,
+    startAngle: 0
+  };
+}
+
+function onPointerMove(e) {
+  if (!dragState || isFlipping) return;
+  const x = getPointerX(e);
+  const dx = x - dragState.startX;
+
+  // 死区 8px 才触发
+  if (!dragState.isDragging) {
+    if (Math.abs(dx) < 8) return;
+    dragState.isDragging = true;
+    viewer.classList.add('dragging');
+
+    // 确定目标页
+    const dir = dx < 0 ? 1 : -1;
+    dragState.targetIdx = currentPage + dir;
+    if (dragState.targetIdx < 0 || dragState.targetIdx >= totalPages) {
+      dragState.isDragging = false;
+      viewer.classList.remove('dragging');
+      return;
+    }
+
+    // 预加载目标页
+    preloadImage(images[dragState.targetIdx]).catch(() => {});
+    // 设置底层（目标页）
+    pageUnder.src = images[dragState.targetIdx];
+    // 翻页层 = 当前页
+    flipImg.src = images[currentPage];
+    // 复位
+    pageFlip.style.transition = 'none';
+    pageFlip.style.transform = 'rotateY(0deg)';
+    void pageWrap.offsetHeight;
+  }
+
+  dragState.moved = true;
+  dragState.currentX = x;
+
+  // 计算翻页角度：dx / 容器宽度 → 映射到 0~-180 度
+  const wrapW = pageWrap.offsetWidth || window.innerWidth;
+  let progress = dx / (wrapW * 0.6); // 拖到 60% 宽度就翻完
+  progress = Math.max(-1, Math.min(1, progress));
+
+  // 拖向右 = 正角度（往回翻），拖向左 = 负角度（往前翻）
+  let angle = progress * -180;
+  angle = Math.max(-180, Math.min(180, angle));
+
+  // 去掉过渡动画，实时跟随
+  pageFlip.style.transition = 'none';
+  pageFlip.style.transform = `rotateY(${angle}deg)`;
+}
+
+function onPointerUp(e) {
+  if (!dragState) return;
+  viewer.classList.remove('dragging');
+
+  const dx = dragState.currentX - dragState.startX;
+
+  if (dragState.isDragging && dragState.moved && Math.abs(dx) > 30) {
+    // 拖拽超过阈值 → 完成翻页
+    const dir = dx < 0 ? 1 : -1;
+    const targetIdx = currentPage + dir;
+    if (targetIdx >= 0 && targetIdx < totalPages) {
+      isFlipping = true;
+      const finalAngle = dir === 1 ? -180 : 180;
+      // 用动画完成剩余行程
+      pageFlip.style.transition = 'transform 250ms cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+      pageFlip.style.transform = `rotateY(${finalAngle}deg)`;
+
+      setTimeout(() => {
+        currentPage = targetIdx;
+        pageFlip.style.transition = 'none';
+        pageFlip.style.transform = 'rotateY(0deg)';
+        pageUnder.src = images[currentPage];
+        preloadAdjacent(currentPage);
+        isFlipping = false;
+        showPageInfo();
+      }, 260);
+    } else {
+      // 超出边界，弹回
+      pageFlip.style.transition = 'transform 200ms ease';
+      pageFlip.style.transform = 'rotateY(0deg)';
+    }
+  } else if (dragState.isDragging) {
+    // 拖拽不足阈值 → 弹回
+    pageFlip.style.transition = 'transform 200ms ease';
+    pageFlip.style.transform = 'rotateY(0deg)';
+  }
+
+  dragState = null;
+}
+
+// ===== 统一事件绑定 =====
+// 鼠标
+viewer.addEventListener('mousedown', onPointerDown);
+window.addEventListener('mousemove', onPointerMove);
+window.addEventListener('mouseup', onPointerUp);
+
+// 触屏
+viewer.addEventListener('touchstart', (e) => {
+  // 只取第一指
+  if (e.touches.length !== 1) return;
+  onPointerDown({ clientX: e.touches[0].clientX });
+}, { passive: true });
+
+viewer.addEventListener('touchmove', (e) => {
+  if (e.touches.length !== 1) return;
+  onPointerMove({ clientX: e.touches[0].clientX });
+}, { passive: true });
+
+viewer.addEventListener('touchend', (e) => {
+  onPointerUp({ clientX: e.changedTouches[0].clientX });
+}, { passive: true });
+
+// 键盘
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') turnPage(-1);
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
+    e.preventDefault();
+    turnPage(1);
+  }
+});
+
+// 窗口大小变化时重置
+window.addEventListener('resize', () => {});
+
+// ===== 加载 =====
 async function loadDoc() {
   try {
     loadingText.textContent = '加载文档信息...';
@@ -350,38 +467,17 @@ async function loadDoc() {
     docTitle = data.title || '未命名文档';
     document.title = docTitle;
 
-    // 从 hash 恢复页数
     const hash = window.location.hash.match(/page=(\d+)/);
     currentPage = hash ? Math.max(0, Math.min(parseInt(hash[1]) - 1, totalPages - 1)) : 0;
 
-    // 加载第一页
     loadingText.textContent = '加载页面...';
     await preloadImage(images[currentPage]);
 
-    // 显示界面
     loading.style.display = 'none';
     viewer.style.display = 'flex';
     pageUnder.src = images[currentPage];
-    pageUnder.classList.add('show');
     preloadAdjacent(currentPage);
     showPageInfo();
-
-    // 键盘
-    document.addEventListener('keydown', e => {
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') turnPage(-1);
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
-        e.preventDefault();
-        turnPage(1);
-      }
-    });
-
-    // 触摸滑动
-    let tx = 0;
-    document.addEventListener('touchstart', e => { tx = e.changedTouches[0].screenX; }, { passive: true });
-    document.addEventListener('touchend', e => {
-      const diff = e.changedTouches[0].screenX - tx;
-      if (Math.abs(diff) > 50) turnPage(diff > 0 ? -1 : 1);
-    }, { passive: true });
 
   } catch (err) {
     loading.style.display = 'none';
@@ -390,11 +486,6 @@ async function loadDoc() {
   }
 }
 
-// ===== 导航事件 =====
-navLeft.addEventListener('click', () => turnPage(-1));
-navRight.addEventListener('click', () => turnPage(1));
-
-// ===== 启动 =====
 loadDoc();
 </script>
 </body>
